@@ -1,0 +1,147 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"{{.ModPrefix}}{{.Name}}/internal/user"
+
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+
+	"{{.ModPrefix}}{{.Name}}/cmd/api/handlers"
+	"github.com/garyburd/redigo/redis"
+
+	"github.com/jmoiron/sqlx"
+
+	"github.com/BurntSushi/toml"
+	"{{.ModPrefix}}{{.Name}}/config"
+	_ "github.com/lib/pq"
+)
+
+func main() {
+	cfg := config.Config{}
+	if _, err := toml.DecodeFile("./config/config.toml", &cfg); err != nil {
+		log.Fatal(err)
+	}
+
+	logger := &zap.Logger{}
+	hostName, err := os.Hostname()
+	if err != nil {
+		log.Fatal(err)
+	}
+	switch cfg.Log.Level {
+	case "debug", "DEBUG":
+		devConfig := zap.NewDevelopmentConfig()
+		var err error
+		logger, err = devConfig.Build()
+		if err != nil {
+			log.Fatalln(err)
+		}
+	case "info", "INFO":
+		prodConfig := zap.NewProductionConfig()
+		prodConfig.EncoderConfig.TimeKey = "time"
+		prodConfig.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+		prodConfig.InitialFields = map[string]interface{}{
+			"host": hostName,
+			"app":  cfg.Default.AppName,
+		}
+		var err error
+		logger, err = prodConfig.Build()
+		if err != nil {
+			log.Fatalln(err)
+		}
+	default:
+		logger = zap.NewExample()
+	}
+
+	db, err := sqlx.Open("postgres",
+		fmt.Sprintf("host=%s port=%d user=%s dbname=%s sslmode=disable password=%s",
+			cfg.MasterDB.Host,
+			cfg.MasterDB.Port,
+			cfg.MasterDB.User,
+			cfg.MasterDB.DB,
+			cfg.MasterDB.Password))
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := db.Ping(); err != nil {
+		log.Fatal(err)
+	}
+	db.SetMaxIdleConns(cfg.MasterDB.MaxIdleConn)
+	db.SetMaxOpenConns(cfg.MasterDB.MaxOpenConn)
+	defer func() {
+		if err := db.Close(); err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	redisPool := &redis.Pool{
+		MaxIdle:     cfg.Redis.MaxIdle,
+		MaxActive:   cfg.Redis.MaxActive,
+		IdleTimeout: time.Duration(cfg.Redis.IdleTimeout) * time.Second,
+		Dial: func() (redis.Conn, error) {
+			c, err := redis.Dial("tcp", cfg.Redis.Addr, redis.DialPassword(cfg.Redis.Password),
+				redis.DialDatabase(cfg.Redis.DB))
+			if nil != err {
+				return nil, err
+			}
+			return c, nil
+		},
+		TestOnBorrow: func(c redis.Conn, t time.Time) error {
+			if time.Since(t) < time.Minute {
+				return nil
+			}
+			_, err := c.Do("PING")
+			return err
+		},
+	}
+	defer func() {
+		if err := redisPool.Close(); err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	userRepo := user.NewRepository(db, logger)
+
+	appCtx := handlers.AppContext{
+		Log:      logger,
+		MasterDB: db,
+		Redis:    redisPool,
+		UserRepo: userRepo,
+	}
+
+	srv := http.Server{
+		Addr:         cfg.Default.Addr,
+		Handler:      handlers.NewHandler(&appCtx),
+		ReadTimeout:  time.Duration(cfg.Default.ReadTimeout) * time.Second,
+		WriteTimeout: time.Duration(cfg.Default.WriteTimeout) * time.Second,
+	}
+
+	logger.Info("starting sever", zap.String("addr", cfg.Default.Addr))
+	go func() {
+		if err := srv.ListenAndServe(); err != nil {
+			logger.Fatal("failed to start server", zap.Error(err))
+		}
+	}()
+
+	sc := make(chan os.Signal, 1)
+	signal.Notify(sc, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
+	sig := <-sc
+	logger.Info("got signal", zap.String("signal", sig.String()))
+	switch sig {
+	case syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM:
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(5)*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			logger.Error("failed to shutdown server", zap.Error(err))
+		}
+		logger.Info("exit")
+	}
+}

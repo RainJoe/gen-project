@@ -1,0 +1,29 @@
+package web
+
+const (
+	WrongParamsErrCode = iota + 10001
+	CreateUserErrCode
+	ReadUserErrCode
+	UpdateUserErrCode
+	DeleteUserErrCode
+	UserNotExistErrCode
+)
+
+var errorCodeMap = map[int]string{
+	WrongParamsErrCode:  "参数错误",
+	CreateUserErrCode:   "创建用户失败",
+	ReadUserErrCode:     "获取用户失败",
+	UpdateUserErrCode:   "更新用户失败",
+	DeleteUserErrCode:   "删除用户失败",
+	UserNotExistErrCode: "用户不存在",
+}
+
+type Error struct {
+	error
+	Code    int
+	Message string
+}
+
+func NewError(err error, code int) error {
+	return &Error{err, code, errorCodeMap[code]}
+}

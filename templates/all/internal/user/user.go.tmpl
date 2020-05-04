@@ -1,0 +1,79 @@
+package user
+
+import (
+	"time"
+
+	"github.com/jmoiron/sqlx"
+
+	"go.uber.org/zap"
+
+	"github.com/google/uuid"
+	"github.com/huandu/go-sqlbuilder"
+)
+
+func (repo *Repository) Create(req *CreateRequest) (*User, error) {
+	u := &User{
+		PrettyID:   uuid.New().String(),
+		Name:       req.Name,
+		Password:   req.Password,
+		CreateTime: time.Now().UnixNano() / 1e6,
+		UpdateTime: time.Now().UnixNano() / 1e6,
+	}
+	ib := sqlbuilder.PostgreSQL.NewInsertBuilder()
+	ib.InsertInto("users")
+	ib.Cols("u_pretty_id", "u_name", "u_password", "u_create_time", "u_update_time")
+	ib.Values(u.PrettyID, u.Name, u.Password, u.CreateTime, u.UpdateTime)
+	bf := sqlbuilder.Buildf("%v RETURNING u_id", ib)
+	sql, args := bf.BuildWithFlavor(sqlbuilder.PostgreSQL)
+	repo.Log.Debug("user.Create", zap.String("sql", sql), zap.Any("args", args))
+	if err := repo.DBConn.QueryRow(sql, args...).Scan(&u.ID); err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+func (repo *Repository) Read(req *ReadRequest) (*User, error) {
+	u := &User{}
+	sb := sqlbuilder.PostgreSQL.NewSelectBuilder()
+	sb.Select("*").From("users").Where(sb.E("u_delete_time", 0),
+		sb.E("u_id", req.ID))
+	sql, args := sb.Build()
+	repo.Log.Debug("user.Read", zap.String("sql", sql), zap.Any("args", args))
+	if err := sqlx.Get(repo.DBConn, u, sql, args...); err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+func (repo *Repository) Update(req *UpdateRequest) error {
+	u := &User{
+		ID:         req.ID,
+		Name:       req.Name,
+		Password:   req.Password,
+		UpdateTime: time.Now().UnixNano() / 1e6,
+	}
+	ub := sqlbuilder.PostgreSQL.NewUpdateBuilder()
+	ub.Update("users")
+	ub.Set(ub.Assign("u_name", u.Name), ub.Assign("u_password", u.Password),
+		ub.Assign("u_update_time", u.UpdateTime))
+	ub.Where(ub.E("u_delete_time", 0), ub.E("u_id", u.ID))
+	sql, args := ub.Build()
+	repo.Log.Debug("user.Update", zap.String("sql", sql), zap.Any("args", args))
+	if _, err := repo.DBConn.Exec(sql, args...); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (repo *Repository) Delete(req *DeleteRequest) error {
+	ub := sqlbuilder.PostgreSQL.NewUpdateBuilder()
+	ub.Update("users")
+	ub.Set(ub.Assign("u_delete_time", time.Now().UnixNano()/1e6))
+	ub.Where(ub.E("u_delete_time", 0), ub.E("u_id", req.ID))
+	sql, args := ub.Build()
+	repo.Log.Debug("user.Delete", zap.String("sql", sql), zap.Any("args", args))
+	if _, err := repo.DBConn.Exec(sql, args...); err != nil {
+		return err
+	}
+	return nil
+}

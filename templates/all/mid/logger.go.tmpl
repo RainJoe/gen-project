@@ -1,0 +1,48 @@
+package mid
+
+import (
+	"time"
+
+	"github.com/google/uuid"
+
+	"{{.ModPrefix}}{{.Name}}/internal/web"
+
+	"github.com/labstack/echo"
+	"go.uber.org/zap"
+)
+
+func LoggerError(log *zap.Logger) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			traceId := uuid.New().String()
+			c.Set("traceId", traceId)
+			req := c.Request()
+			start := time.Now()
+			err := next(c)
+			latency := time.Since(start).Milliseconds()
+			latencyHuman := time.Since(start).String()
+			remoteIp := req.RemoteAddr
+			method := req.Method
+			uri := req.RequestURI
+			if err != nil {
+				if we, ok := err.(*web.Error); ok {
+					log.Error("business error", zap.String("remoteIp", remoteIp), zap.String("method", method),
+						zap.String("uri", uri), zap.Int64("latency", latency),
+						zap.String("latencyHuman", latencyHuman), zap.Int("code", we.Code),
+						zap.String("message", we.Message), zap.Error(err), zap.String("traceId", traceId))
+					return web.ErrorResponse(c, we.Code)
+				}
+				c.Error(err)
+				log.Error("failed", zap.String("remoteIp", remoteIp), zap.String("method", method),
+					zap.String("uri", uri), zap.Int64("latency", latency),
+					zap.String("latencyHuman", latencyHuman), zap.Error(err), zap.String("traceId", traceId))
+				return err
+			} else {
+				log.Info("success", zap.String("remoteIp", remoteIp), zap.String("method", method),
+					zap.String("uri", uri), zap.Int64("latency", latency),
+					zap.String("latencyHuman", latencyHuman), zap.String("traceId", traceId))
+				return nil
+			}
+		}
+	}
+}

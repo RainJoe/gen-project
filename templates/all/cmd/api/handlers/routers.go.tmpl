@@ -1,0 +1,32 @@
+package handlers
+
+import (
+	"{{.ModPrefix}}{{.Name}}/internal/user"
+	"github.com/garyburd/redigo/redis"
+
+	"github.com/jmoiron/sqlx"
+
+	"{{.ModPrefix}}{{.Name}}/mid"
+	"go.uber.org/zap"
+
+	"github.com/labstack/echo"
+)
+
+type AppContext struct {
+	Log      *zap.Logger
+	MasterDB *sqlx.DB
+	Redis    *redis.Pool
+	UserRepo *user.Repository
+}
+
+func NewHandler(appCtx *AppContext) *echo.Echo {
+	e := echo.New()
+	e.Use(mid.LoggerError(appCtx.Log))
+
+	u := Users{UserRepo: appCtx.UserRepo}
+	e.POST("/users", u.Create)
+	e.GET("/user", u.Read)
+	e.PUT("/user", u.Update)
+	e.DELETE("/user", u.Delete)
+	return e
+}

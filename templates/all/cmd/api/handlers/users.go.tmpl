@@ -1,0 +1,76 @@
+package handlers
+
+import (
+	"database/sql"
+
+	"{{.ModPrefix}}{{.Name}}/internal/user"
+	"{{.ModPrefix}}{{.Name}}/internal/web"
+	"github.com/labstack/echo"
+)
+
+type Users struct {
+	UserRepo *user.Repository
+}
+
+func (u *Users) Create(c echo.Context) error {
+	req := user.CreateRequest{}
+	if err := c.Bind(&req); err != nil {
+		return web.NewError(err, web.WrongParamsErrCode)
+	}
+	if err := web.Validator().Struct(&req); err != nil {
+		return web.NewError(err, web.WrongParamsErrCode)
+	}
+	usr, err := u.UserRepo.Create(&req)
+	if err != nil {
+		return web.NewError(err, web.CreateUserErrCode)
+	}
+	return web.SuccessResponse(c, usr.Response())
+}
+
+func (u *Users) Read(c echo.Context) error {
+	req := user.ReadRequest{}
+	if err := c.Bind(&req); err != nil {
+		return web.NewError(err, web.WrongParamsErrCode)
+	}
+	if err := web.Validator().Struct(&req); err != nil {
+		return web.NewError(err, web.WrongParamsErrCode)
+	}
+	usr, err := u.UserRepo.Read(&req)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return web.NewError(err, web.UserNotExistErrCode)
+		}
+		return web.NewError(err, web.ReadUserErrCode)
+	}
+	return web.SuccessResponse(c, usr.Response())
+}
+
+func (u *Users) Update(c echo.Context) error {
+	req := user.UpdateRequest{}
+	if err := c.Bind(&req); err != nil {
+		return web.NewError(err, web.WrongParamsErrCode)
+	}
+	if err := web.Validator().Struct(&req); err != nil {
+		return web.NewError(err, web.WrongParamsErrCode)
+	}
+	err := u.UserRepo.Update(&req)
+	if err != nil {
+		return web.NewError(err, web.UpdateUserErrCode)
+	}
+	return web.SuccessResponse(c, nil)
+}
+
+func (u *Users) Delete(c echo.Context) error {
+	req := user.DeleteRequest{}
+	if err := c.Bind(&req); err != nil {
+		return web.NewError(err, web.WrongParamsErrCode)
+	}
+	if err := web.Validator().Struct(&req); err != nil {
+		return web.NewError(err, web.WrongParamsErrCode)
+	}
+	err := u.UserRepo.Delete(&req)
+	if err != nil {
+		return web.NewError(err, web.DeleteUserErrCode)
+	}
+	return web.SuccessResponse(c, nil)
+}

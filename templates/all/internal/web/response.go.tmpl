@@ -1,0 +1,30 @@
+package web
+
+import (
+	"net/http"
+
+	"github.com/labstack/echo"
+)
+
+type Response struct {
+	Code    int         `json:"code"`
+	Message string      `json:"message"`
+	Data    interface{} `json:"data,omitempty"`
+}
+
+func SuccessResponse(c echo.Context, data interface{}) error {
+	rsp := Response{
+		Code:    0,
+		Message: "success",
+		Data:    data,
+	}
+	return c.JSON(http.StatusOK, rsp)
+}
+
+func ErrorResponse(c echo.Context, code int) error {
+	rsp := Response{
+		Code:    code,
+		Message: errorCodeMap[code],
+	}
+	return c.JSON(http.StatusOK, rsp)
+}

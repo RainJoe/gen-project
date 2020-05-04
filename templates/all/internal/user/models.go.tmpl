@@ -1,0 +1,66 @@
+package user
+
+import (
+	"github.com/jmoiron/sqlx"
+	"go.uber.org/zap"
+)
+
+type Repository struct {
+	DBConn *sqlx.DB
+	Log    *zap.Logger
+}
+
+func NewRepository(db *sqlx.DB, log *zap.Logger) *Repository {
+	return &Repository{
+		db,
+		log,
+	}
+}
+
+// User is a mapping object for users table in postgres
+type User struct {
+	ID         int64  `json:"id" db:"u_id" fieldopt:"omitempty"`
+	PrettyID   string `json:"pretty_id" db:"u_pretty_id"`
+	Name       string `json:"name" db:"u_name"`
+	Password   string `json:"password" db:"u_password"`
+	CreateTime int64  `json:"create_time" db:"u_create_time"`
+	UpdateTime int64  `json:"update_time" db:"u_update_time"`
+	DeleteTime int64  `json:"delete_time" db:"u_delete_time"`
+}
+
+type CreateRequest struct {
+	Name     string `json:"name" validate:"required"`
+	Password string `json:"password" validate:"required"`
+}
+
+type CreateResponse struct {
+	ID         int64  `json:"id"`
+	PrettyID   string `json:"pretty_id"`
+	Name       string `json:"name"`
+	CreateTime int64  `json:"create_time"`
+	UpdateTime int64  `json:"update_time"`
+}
+
+func (u *User) Response() *CreateResponse {
+	return &CreateResponse{
+		ID:         u.ID,
+		PrettyID:   u.PrettyID,
+		Name:       u.Name,
+		CreateTime: u.CreateTime,
+		UpdateTime: u.UpdateTime,
+	}
+}
+
+type ReadRequest struct {
+	ID int64 `json:"id" validate:"required"`
+}
+
+type UpdateRequest struct {
+	ID       int64  `json:"id" validate:"required"`
+	Name     string `json:"name" validate:"required"`
+	Password string `json:"password" validate:"required"`
+}
+
+type DeleteRequest struct {
+	ID int64 `json:"id" validate:"required"`
+}
